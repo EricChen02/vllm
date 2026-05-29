@@ -17,7 +17,6 @@ hidden. Prefer utility functions defined elsewhere and call them from here,
 instead of embedding feature-specific logic directly.
 """
 
-import copy
 import functools
 import gc
 import time
@@ -52,11 +51,7 @@ from vllm.utils.platform_utils import is_pin_memory_available
 from vllm.utils.torch_utils import STR_DTYPE_TO_TORCH_DTYPE
 from vllm.v1.core.sched.output import GrammarOutput, SchedulerOutput
 from vllm.v1.kv_cache_interface import KVCacheConfig, MambaSpec
-from vllm.v1.outputs import (
-    EMPTY_MODEL_RUNNER_OUTPUT,
-    DraftTokenIds,
-    ModelRunnerOutput,
-)
+from vllm.v1.outputs import DraftTokenIds, ModelRunnerOutput
 from vllm.v1.worker.cp_utils import check_attention_cp_compatibility
 from vllm.v1.worker.gpu.async_utils import AsyncOutput, AsyncPoolingOutput
 from vllm.v1.worker.gpu.attn_utils import (
@@ -272,10 +267,6 @@ class GPUModelRunner(LoRAModelRunnerMixin):
 
         # For transferring state from execute_model to subsequent sample_tokens call.
         self.execute_model_state: ExecuteModelState | None = None
-        # Non-last-PP-rank kv_connector_output is computed in execute_model and
-        # consumed by sample_tokens so the aggregator can count this rank's
-        # finished_sending / finished_recving ticks.
-        self.kv_connector_output: Any = None
 
         # Expert parallelism load balancer.
         self.eplb = EPLBController(self.parallel_config, self.device)
@@ -1310,10 +1301,6 @@ class GPUModelRunner(LoRAModelRunnerMixin):
 
         if not self.is_last_pp_rank:
             # Non-last PP rank: return IntermediateTensors for sending.
-            assert output_intermediate_tensors is not None
-            kv_connector_output = self.kv_connector.post_forward(finished_req_ids)
-            output_intermediate_tensors.kv_connector_output = kv_connector_output
-            self.kv_connector_output = kv_connector_output
             return output_intermediate_tensors
         return None
 
