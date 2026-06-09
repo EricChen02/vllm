@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import FastAPI, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -241,14 +241,33 @@ async def _handle_completions(api: str, request: Request):
 
         logger.debug("Using %s %s", prefill_client_info, decode_client_info)
 
-        # Stream response from decode service
-        async def generate_stream():
-            async for chunk in stream_service_response(
-                decode_client_info, api, req_data, request_id=request_id
-            ):
-                yield chunk
+        is_streaming = req_data.get("stream", False)
+        if is_streaming:
+            # Stream response from decode service
+            async def generate_stream():
+                async for chunk in stream_service_response(
+                    decode_client_info, api, req_data, request_id=request_id
+                ):
+                    yield chunk
 
-        return StreamingResponse(generate_stream(), media_type="application/json")
+            return StreamingResponse(generate_stream(), media_type="text/event-stream")
+        else:
+            # Non-streaming: collect decode response and return as JSON.
+            # StreamingResponse wraps with chunked transfer encoding, which
+            # causes aiohttp ClientPayloadError (TransferEncodingError) in
+            # clients that expect a plain Content-Length JSON response.
+            headers = {
+                "Authorization": f"Bearer {os.environ.get('OPENAI_API_KEY')}",
+                "X-Request-Id": request_id,
+            }
+            decode_response = await decode_client_info["client"].post(
+                api, json=req_data, headers=headers
+            )
+            decode_response.raise_for_status()
+            return JSONResponse(
+                content=decode_response.json(),
+                status_code=decode_response.status_code,
+            )
 
     except Exception as e:
         import sys

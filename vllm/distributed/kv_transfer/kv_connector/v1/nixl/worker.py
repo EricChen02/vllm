@@ -948,7 +948,11 @@ class NixlConnectorWorker:
         Failures to handshake are logged and the request is marked as failed.
         """
         with self._handshake_lock:
-            if engine_id in self._remote_agents and engine_id in self._pp_layer_map:
+            if (
+                engine_id in self._remote_agents
+                and engine_id in self._pp_layer_map
+                and engine_id not in self._handshake_futures
+            ):
                 return None
             fut = self._handshake_futures.get(engine_id)
             if fut is not None:
