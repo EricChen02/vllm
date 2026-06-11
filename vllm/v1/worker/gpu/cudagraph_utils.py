@@ -24,6 +24,10 @@ from vllm.distributed.parallel_state import (
 from vllm.forward_context import BatchDescriptor, set_forward_context
 from vllm.logger import init_logger
 from vllm.model_executor.offloader.base import get_offloader
+
+
+def _reset_offloader_for_cudagraph_capture() -> None:
+    get_offloader().reset_runtime_state()
 from vllm.platforms import current_platform
 from vllm.sequence import IntermediateTensors
 from vllm.v1.kv_cache_interface import KVCacheConfig
@@ -251,6 +255,7 @@ class CudaGraphManager:
                         graph = torch.cuda.CUDAGraph()
                         # Sync offloader's copy stream before capture.
                         # Ensure any pre-capture prefetches from offloader are complete.
+                        _reset_offloader_for_cudagraph_capture()
                         get_offloader().sync_prev_onload()
                         with torch.cuda.graph(graph, self.pool):
                             forward_fn(CUDAGraphMode.NONE)

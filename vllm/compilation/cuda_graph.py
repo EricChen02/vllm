@@ -23,6 +23,10 @@ from vllm.forward_context import (
 )
 from vllm.logger import init_logger
 from vllm.model_executor.offloader.base import get_offloader
+
+
+def _reset_offloader_for_cudagraph_capture() -> None:
+    get_offloader().reset_runtime_state()
 from vllm.platforms import current_platform
 from vllm.utils.torch_utils import current_stream, weak_ref_tensors
 
@@ -307,6 +311,7 @@ class CUDAGraphWrapper:
 
                 # Sync offloader's copy stream before capture.
                 # Ensure any pre-capture prefetches from offloader are complete.
+                _reset_offloader_for_cudagraph_capture()
                 get_offloader().sync_prev_onload()
 
                 # mind-exploding: carefully manage the reference and memory.

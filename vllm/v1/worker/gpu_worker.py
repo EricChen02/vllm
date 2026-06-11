@@ -75,6 +75,14 @@ from .utils import request_memory
 
 logger = init_logger(__name__)
 
+
+def _reset_offloader_after_weight_wake(tags: list[str] | None) -> None:
+    if tags is None or "weights" in tags:
+        from vllm.model_executor.offloader.base import get_offloader
+
+        get_offloader().reset_runtime_state()
+
+
 if TYPE_CHECKING:
     from vllm.model_executor.model_loader.tensorizer import TensorizerConfig
     from vllm.v1.worker.gpu_model_runner import GPUModelRunner
@@ -189,6 +197,7 @@ class Worker(WorkerBase):
 
         allocator = CuMemAllocator.get_instance()
         allocator.wake_up(tags)
+        _reset_offloader_after_weight_wake(tags)
 
         # Restore the buffers after level 2 sleep
         if len(self._sleep_saved_buffers):
@@ -420,10 +429,16 @@ class Worker(WorkerBase):
         profile_result.torch_peak_increase = (
             profile_torch_peak - profile_result.before_profile.torch_peak
         )
+        from vllm.model_executor.offloader import get_offloader
+
+        offload_static_runtime_buffer_bytes = int(
+            get_offloader().static_runtime_buffer_bytes
+        )
         profile_result.non_kv_cache_memory = (
             profile_result.non_torch_increase
             + profile_result.torch_peak_increase
             + profile_result.weights_memory
+            + offload_static_runtime_buffer_bytes
         )
 
         # On ROCm, cudagraph_memory_estimate is always 0 so this is a no-op.
@@ -655,11 +670,17 @@ class Worker(WorkerBase):
             # So leave a small buffer (=150MiB) to avoid OOM.
             redundancy_buffer_memory = 150 * (1 << 20)
 
+            from vllm.model_executor.offloader import get_offloader
+
+            offload_static_runtime_buffer_bytes = int(
+                get_offloader().static_runtime_buffer_bytes
+            )
             non_kv_cache_memory = (
                 self.model_runner.model_memory_usage
                 + self.peak_activation_memory
                 + self.non_torch_memory
                 + cuda_graph_memory_bytes
+                + offload_static_runtime_buffer_bytes
             )
             kv_cache_memory_bytes_to_gpu_limit = (
                 self.init_snapshot.free_memory
